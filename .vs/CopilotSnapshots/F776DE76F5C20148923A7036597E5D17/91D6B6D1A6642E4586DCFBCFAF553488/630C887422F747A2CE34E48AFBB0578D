@@ -1,0 +1,67 @@
+﻿using System.Collections.Concurrent;
+using System.Globalization;
+
+// ===================== EDITE AQUI =====================
+const string pathWiki = @"C:\Users\leona\OneDrive\Documentos\Repositorio\wiki";
+const int delayMs = 200; // tempo para agrupar eventos repetidos do mesmo arquivo
+// =====================================================
+
+if (!Directory.Exists(pathWiki))
+{
+    Console.WriteLine($"Pasta não encontrada: {pathWiki}");
+    return;
+}
+
+// guarda o último horário de evento por (ação + arquivo)
+var lastEvent = new ConcurrentDictionary<string, DateTime>();
+
+var pendingChange = new ConcurrentDictionary<string, DateTime>();
+
+bool Duplicate(string file)
+{
+    var now = DateTime.Now;
+    if (pendingChange.TryGetValue(file, out var last))
+    {
+        if ((now - last).TotalMilliseconds < delayMs)
+        {
+            return true;
+        }
+    }
+    pendingChange[file] = now;
+    return false;
+}
+
+using var watcher = new FileSystemWatcher(pathWiki)
+{
+    IncludeSubdirectories = true,
+    Filter = "*.md",
+    NotifyFilter = NotifyFilters.FileName
+                 | NotifyFilters.LastWrite
+                 | NotifyFilters.DirectoryName
+};
+
+watcher.Created += (_, e) => { if (!Duplicate(e.FullPath)) RecordChange("CRIADO", e.FullPath); };
+watcher.Changed += (_, e) => { if (!Duplicate(e.FullPath)) RecordChange("MODIFICADO", e.FullPath); };
+watcher.Deleted += (_, e) => { if (!Duplicate(e.FullPath)) RecordChange("DELETADO", e.FullPath); };
+watcher.Renamed += (_, e) => { if (!Duplicate($"{e.FullPath}")) RecordChange("RENOMEADO", $"{e.OldName} -> {e.Name}"); };
+watcher.Error += (_, e) => Console.WriteLine($"[erro] {e.GetException().Message}");
+
+watcher.EnableRaisingEvents = true;
+
+Console.WriteLine($"Monitorando: {pathWiki}");
+Console.WriteLine("Crie, edite ou apague um arquivo .md para ver os eventos.");
+Console.WriteLine("Pressione ENTER para sair.\n");
+Console.ReadLine();
+
+static void Log(string action, string? file)
+    => Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {action, -11} {file}");
+
+void RecordChange (string action, string? file)
+{
+    if (string.IsNullOrWhiteSpace(file))
+        return;
+
+    pendingChange[file] = action;
+
+    Log(action, file);
+}
