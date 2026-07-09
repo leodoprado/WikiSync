@@ -1,92 +1,37 @@
-using WikiSync;
+using WikiSync.Interfaces;
+using WikiSync.Services;
 
-// ===================== EDITE AQUI =====================
-const string pathWiki = @"C:\Users\leona\OneDrive\Documentos\Repositorio\wiki";
-const int delayMs = 200;
-// =====================================================
+var builder = WebApplication.CreateBuilder(args);
 
-if (!Directory.Exists(pathWiki))
+builder.Services.AddControllers();
+
+builder.Services.AddSingleton<IHashService, HashService>();
+builder.Services.AddSingleton<IChangeTrackerService, ChangeTrackerService>();
+builder.Services.AddSingleton<FileWatcherService>();
+
+var app = builder.Build();
+
+var watcher = app.Services.GetRequiredService<FileWatcherService>();
+var tracker = app.Services.GetRequiredService<IChangeTrackerService>();
+
+watcher.FileChanged += filePath =>
 {
-    Console.WriteLine($"Pasta não encontrada: {pathWiki}");
-    return;
-}
-
-var logger = new ConsoleLogger();
-var tracker = new ChangeTracker(delayMs);
-
-using var watcher = new FileSystemWatcher(pathWiki)
-{
-    IncludeSubdirectories = true,
-    Filter = "*.md",
-    NotifyFilter = NotifyFilters.FileName
-                 | NotifyFilters.LastWrite
-                 | NotifyFilters.DirectoryName
-};
-
-watcher.Created += (_, e) =>
-{
-    if (!tracker.isDuplicate(e.FullPath))
+    if (!File.Exists(filePath))
     {
-        tracker.AddChange("CRIADO", e.FullPath);
-        logger.Log("CRIADO", e.FullPath);
-    }
-};
-
-watcher.Changed += (_, e) =>
-{
-    if (!tracker.isDuplicate(e.FullPath))
-    {
-        tracker.AddChange("MODIFICADO", e.FullPath);
-        logger.Log("MODIFICADO", e.FullPath);
-    }
-};
-
-watcher.Deleted += (_, e) =>
-{
-    if (!tracker.isDuplicate(e.FullPath))
-    {
-        tracker.AddChange("DELETADO", e.FullPath);
-        logger.Log("DELETADO", e.FullPath);
-    }
-};
-
-watcher.Renamed += (_, e) =>
-{
-    if (!tracker.isDuplicate(e.FullPath))
-    {
-        tracker.AddChange("RENOMEADO", e.FullPath);
-        logger.Log("RENOMEADO", e.FullPath);
-    }
-};
-
-watcher.Error += (_, e) =>
-{
-    Console.WriteLine($"[erro] {e.GetException().Message}");
-};
-
-watcher.EnableRaisingEvents = true;
-
-Console.WriteLine($"Monitorando: {pathWiki}");
-Console.WriteLine("Pressione ENTER para listar pendências.");
-Console.WriteLine();
-
-while (true)
-{
-    Console.ReadLine();
-
-    Console.WriteLine("\n=== PENDÊNCIAS ===");
-
-    foreach (var item in tracker.GetAll())
-    {
-        Console.WriteLine(
-            $"{item.Action} | {item.LastChange:HH:mm:ss}");
+        Console.WriteLine($"Arquivo removido: {filePath}");
+        return;
     }
 
-    Console.WriteLine();
-}
+    var changed = tracker.HasChanged(filePath);
 
-public record PendingChange(
-    string Action,
-    DateTime LastChange,
-    DateTime LastEvent
-);
+    if (changed)
+        Console.WriteLine($"Arquivo alterado e precisa sincronizar: {filePath}");
+    else
+        Console.WriteLine($"Arquivo ignorado, conteúdo não mudou: {filePath}");
+};
+
+watcher.Start(@"C:\Users\leona\OneDrive\Documentos\Repositorio\wiki");
+
+app.MapControllers();
+
+app.Run();

@@ -1,6 +1,6 @@
 ﻿using System.Collections.Concurrent;
 
-namespace WikiSync
+namespace WikiSync.Services
 {
     public class ChangeTracker
     {
