@@ -1,10 +1,12 @@
-﻿namespace WikiSync.Services
+﻿using WikiSync.Models;
+
+namespace WikiSync.Services
 {
     public class FileWatcherService
     {
         private readonly FileSystemWatcher _watcher;
         private readonly Dictionary<string, Timer> _debounceTimers = new();
-        public event Action<string>? FileChanged;
+        public event Action<FileChange>? FileChanged;
 
         public FileWatcherService()
         {
@@ -33,30 +35,49 @@
 
         private void OnFileChanged(object sender, FileSystemEventArgs e)
         {
-            Debounce(e.FullPath);
+            var changeType = e.ChangeType switch
+            {
+                WatcherChangeTypes.Created => FileChangeType.Created,
+                WatcherChangeTypes.Deleted => FileChangeType.Deleted,
+                _ => FileChangeType.Updated
+            };
+
+            Debounce(new FileChange
+            {
+                ChangeType = changeType,
+                FilePath = e.FullPath
+            });
         }
 
-        private void OnFileRenamed(object sender, FileSystemEventArgs e)
+        private void OnFileRenamed(object sender, RenamedEventArgs e)
         {
-            Debounce(e.FullPath);
+            Debounce(new FileChange
+            {
+                ChangeType = FileChangeType.Renamed,
+                FilePath = e.FullPath,
+                OldFilePath = e.OldFullPath
+            });
         }
 
-        private void Debounce(string filePath)
+        private void Debounce(FileChange fileChange)
         {
-            if (_debounceTimers.TryGetValue(filePath, out var existingTimer))
+            var key = fileChange.ChangeType == FileChangeType.Renamed
+                ? $"{fileChange.OldFilePath}|{fileChange.FilePath}"
+                : fileChange.FilePath;
+
+            if (_debounceTimers.TryGetValue(key, out var existingTimer))
             {
                 existingTimer.Dispose();
-                _debounceTimers.Remove(filePath);
+                _debounceTimers.Remove(key);
             }
 
             var timer = new Timer(_ =>
             {
-                _debounceTimers.Remove(filePath);
-
-                FileChanged?.Invoke(filePath);
+                _debounceTimers.Remove(key);
+                FileChanged?.Invoke(fileChange);
             }, null, 500, Timeout.Infinite);
 
-            _debounceTimers[filePath] = timer;
+            _debounceTimers[key] = timer;
         }
     }
 }
